@@ -1,6 +1,4 @@
-// frontend/src/app/page.js
-
-'use client';
+"use client";
 
 import { supabase } from "@/utils/supabase/client"; // Corrected import
 import { useState, useEffect } from 'react';
@@ -147,44 +145,39 @@ export default function Home() {
     const [message, setMessage] = useState('');
 
     useEffect(() => {
+        // This listener handles all auth events, making a separate session check redundant.
         const { data: authListener } = supabase.auth.onAuthStateChange(
             async (event, session) => {
+                setLoading(true);
                 const currentUser = session?.user;
                 setUser(currentUser ?? null);
 
                 if (event === 'PASSWORD_RECOVERY') {
                     setView('updatePassword');
                 } else if (currentUser) {
-                    const { data: profileData } = await supabase
+                    // If a user is logged in, fetch their profile.
+                    const { data: profileData, error: profileError } = await supabase
                         .from('profiles')
                         .select('*')
                         .eq('id', currentUser.id)
                         .single();
-                    setProfile(profileData ?? null);
+                    
+                    if (profileError) {
+                        console.error("Error fetching profile:", profileError.message);
+                        setProfile(null);
+                    } else {
+                        setProfile(profileData ?? null);
+                    }
                 } else {
+                    // If no user is logged in, clear the profile.
                     setProfile(null);
                 }
                 setLoading(false);
             }
         );
 
-        const checkInitialSession = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            const currentUser = session?.user;
-            setUser(currentUser ?? null);
-             if (currentUser) {
-                const { data: profileData } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .eq('id', currentUser.id)
-                    .single();
-                setProfile(profileData ?? null);
-            }
-            setLoading(false);
-        }
-        checkInitialSession();
-
         return () => {
+            // Cleanup the listener when the component unmounts.
             authListener.subscription.unsubscribe();
         };
     }, []);
@@ -208,6 +201,7 @@ export default function Home() {
                                 roll_number: rollNumber,
                                 phone_number: phoneNumber,
                                 date_of_birth: dateOfBirth,
+                                // Default role can be set here if needed, e.g., role: 'student'
                             },
                         },
                     });
@@ -217,6 +211,7 @@ export default function Home() {
                 case 'signIn':
                     const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
                     if (signInError) throw signInError;
+                    // onAuthStateChange will handle the redirect/UI update
                     break;
                 case 'forgotPassword':
                     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
@@ -253,8 +248,7 @@ export default function Home() {
     
     async function signOut() {
         await supabase.auth.signOut();
-        setUser(null);
-        setProfile(null);
+        // The onAuthStateChange listener will automatically clear user and profile state.
         setView('signIn');
     }
 
