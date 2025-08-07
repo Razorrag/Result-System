@@ -1,0 +1,17 @@
+"dependencies": {
+  "@supabase/ssr": "^0.6.1",
+  "@supabase/supabase-js": "^2.53.0",
+  "axios": "^1.7.2",
+  "cors": "^2.8.5",
+  "dotenv": "^16.4.5",
+  "express": "^4.19.2",
+  "framer-motion": "^12.23.12",
+  "next": "15.4.5",
+  "papaparse": "^5.4.1",
+  "react": "19.1.0",
+  "react-dom": "19.1.0",
+  "react-hot-toast": "^2.4.1",
+  "socket.io": "^4.7.5",
+  "socket.io-client": "^4.7.5",
+  "xlsx": "^0.18.5"
+},
