@@ -1,10 +1,12 @@
-// backend/src/services/supabaseService.js
+// file: src/lib/services/supabaseService.js
 
-const { createClient } = require('@supabase/supabase-js');
+// Using 'import' is more modern than 'require' in Next.js projects.
+import { createClient } from '@supabase/supabase-js';
 
+// These keys are now read from your project's .env.local file
 const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY // This is kept secret and only available on the server
 );
 
 async function getDatabaseSchema() {
@@ -27,32 +29,21 @@ async function getDatabaseSchema() {
   return schemaString;
 }
 
-/**
- * Executes a raw SQL query against the database.
- * Uses a dedicated, generic RPC function for safety and clarity.
- * @param {string} sqlQuery - The SQL query to execute.
- * @returns {Promise<{data: any, error: any}>} The result of the query.
- */
 async function executeQuery(sqlQuery) {
   console.log(`Executing query: ${sqlQuery}`);
+  
+  // The RPC function remains the same.
+  const { data, error } = await supabase.rpc('execute_dynamic_sql', { query: sqlQuery });
 
-  // Create this RPC function in your Supabase SQL Editor for security.
-  // It allows executing dynamic queries safely from the trusted backend.
-  /*
-    CREATE OR REPLACE FUNCTION execute_dynamic_sql(query TEXT)
-    RETURNS JSONB AS $$
-    DECLARE
-        result JSONB;
-    BEGIN
-        EXECUTE 'SELECT jsonb_agg(t) FROM (' || query || ') t' INTO result;
-        RETURN result;
-    EXCEPTION WHEN OTHERS THEN
-        RAISE NOTICE 'Error executing query: %', SQLERRM;
-        RETURN jsonb_build_object('error', SQLERRM);
-    END;
-    $$ LANGUAGE plpgsql;
-  */
-  return await supabase.rpc('execute_dynamic_sql', { query: sqlQuery });
+  // Improved error handling
+  if (error) {
+    console.error('Supabase RPC error:', error);
+    throw new Error(error.message);
+  }
+
+  // Our RPC function returns the data directly inside the 'data' property
+  return { data: data, error: null };
 }
 
-module.exports = { supabase, getDatabaseSchema, executeQuery };
+// Use ES module exports
+export { supabase, getDatabaseSchema, executeQuery };

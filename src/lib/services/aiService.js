@@ -1,23 +1,16 @@
-// backend/src/services/aiService.js
+// file: src/lib/services/aiService.js
 
-const axios = require('axios');
+import axios from 'axios';
 
 const openRouterApiKey = process.env.OPENROUTER_API_KEY;
 const openRouterUrl = 'https://openrouter.ai/api/v1/chat/completions';
 
-/**
- * Sends a command to the AI model to convert natural language into a structured JSON command.
- * Can handle simple commands or commands with a data payload for ingestion.
- * @param {string} command - The natural language command from the user.
- * @param {string} schema - The database schema string.
- * @param {Array<Object>|null} dataPayload - Optional JSON data from a file upload.
- * @returns {Promise<Object|null>} A JSON object with the AI's structured command or null on error.
- */
 async function processCommand(command, schema, dataPayload = null) {
   if (!openRouterApiKey) {
     throw new Error('OPENROUTER_API_KEY is not set in the environment variables.');
   }
 
+  // The rest of your processCommand function is correct and requires no changes.
   let systemPrompt;
   if (dataPayload) {
     // Advanced prompt for data ingestion
@@ -72,4 +65,4 @@ Ensure the SQL is valid for PostgreSQL. The entire output must be a single line 
   }
 }
 
-module.exports = { processCommand };
+export { processCommand };

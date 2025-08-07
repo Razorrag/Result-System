@@ -1,8 +1,8 @@
+// file: src/app/components/AdminDashboard.js
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import io from 'socket.io-client';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
@@ -16,91 +16,111 @@ const AiIcon = ({ className }) => ( <svg className={className} xmlns="http://www
 const TableIcon = ({ className }) => ( <svg className={className} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"> <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M4 4h16v16H4z" /> </svg> );
 const SqlIcon = ({ className }) => ( <svg className={className} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"> <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M4 21h16a2 2 0 002-2V5a2 2 0 00-2-2H4a2 2 0 00-2 2v14a2 2 0 002 2z" /> </svg> );
 
-const socket = io(process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001');
 
 export default function AdminDashboard({ user, profile, signOut }) {
   const [activeView, setActiveView] = useState('ai');
-  const [isConnected, setIsConnected] = useState(socket.connected);
   const [isLoading, setIsLoading] = useState(false);
   const [messages, setMessages] = useState([{text: "Hello! I am your secure SQL assistant. How can I help you query the database today?", sender: 'ai'}]);
   const [queryResults, setQueryResults] = useState({ query: '', data: [] });
 
-  useEffect(() => {
-    // --- Connection Events ---
-    socket.on('connect', () => { setIsConnected(true); toast.success('Connected to Real-Time Server!'); });
-    socket.on('disconnect', () => { setIsConnected(false); toast.error('Disconnected from Real-Time Server!'); });
-
-    // --- Command Loop Events ---
-    socket.on('server:query_result', ({ query, data }) => {
-      setIsLoading(false);
-      setMessages(prev => [...prev, { text: "Here are the results for your query.", sender: 'ai' }]);
-      setQueryResults({ query, data });
-      setActiveView('tables');
-      toast.success(`Successfully fetched ${data.length} rows.`);
-    });
-
-    socket.on('server:write_confirmation', ({ query }) => {
-      setIsLoading(false);
-      const confirmationMessage = `AI has generated the following query for your review. Please confirm to execute it.\n\n\`\`\`sql\n${query}\n\`\`\``
-      setMessages(prev => [...prev, { text: confirmationMessage, sender: 'ai' }]);
-      toast((t) => (
-        <span className="flex flex-col items-center gap-2 text-white">
-          Execute this write query?
-          <pre className="text-xs bg-gray-800 p-2 rounded w-full text-left max-h-40 overflow-auto">{query}</pre>
-          <div className="flex gap-2">
-            <button onClick={() => { socket.emit('execute-confirmed-write', { query }); toast.dismiss(t.id); }}
-                    className="bg-green-600 hover:bg-green-700 font-bold py-1 px-3 rounded">
-              Confirm
-            </button>
-            <button onClick={() => { setMessages(prev => [...prev, { text: "Write operation cancelled.", sender: 'ai' }]); toast.dismiss(t.id);}}
-                    className="bg-red-600 hover:bg-red-700 font-bold py-1 px-3 rounded">
-              Cancel
-            </button>
-          </div>
-        </span>
-      ), { duration: 20000, style: { background: '#4B5563', color: '#fff' } });
-    });
-
-    socket.on('server:query_success', ({ message, data }) => {
-      setIsLoading(false);
-      toast.success(message);
-      setMessages(prev => [...prev, { text: `✅ ${message}`, sender: 'ai' }]);
-    });
-
-    socket.on('server:ui_action', ({ view }) => {
-      setIsLoading(false);
-      setActiveView(view.split(':')[0]);
-      setMessages(prev => [...prev, { text: `Opening the ${view.replace(/_/, ' ')} view.`, sender: 'ai' }]);
-    });
-    
-    socket.on('server:error', ({ message }) => {
-      setIsLoading(false);
-      toast.error(message);
-      setMessages(prev => [...prev, { text: `⚠️ Error: ${message}`, sender: 'ai' }]);
-    });
-
-    return () => {
-      socket.off('connect');
-      socket.off('disconnect');
-      socket.off('server:query_result');
-      socket.off('server:write_confirmation');
-      socket.off('server:query_success');
-      socket.off('server:ui_action');
-      socket.off('server:error');
-    };
-  }, []);
-
-  const handleSendMessage = (command) => {
+  async function sendApiCommand(action, payload) {
     setIsLoading(true);
+    try {
+      const response = await fetch('/api/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, payload }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'API request failed');
+      }
+
+      return result;
+
+    } catch (err) {
+      toast.error(err.message);
+      setMessages(prev => [...prev, { text: `⚠️ Error: ${err.message}`, sender: 'ai' }]);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  const handleApiResponse = (response) => {
+    if (!response) return;
+
+    // Handle JSON from our custom `execute_dynamic_sql` for write operations
+    if (response.status === 'success' && response.message) {
+        toast.success(response.message);
+        setMessages(prev => [...prev, { text: `✅ ${response.message}`, sender: 'ai' }]);
+        return;
+    }
+    
+    const { status, query, data, message, view } = response;
+
+    switch (status) {
+      case 'query_result':
+        // The data is now a direct JSON array, or null if no results
+        const resultData = data || []; 
+        setMessages(prev => [...prev, { text: "Here are the results for your query.", sender: 'ai' }]);
+        setQueryResults({ query, data: resultData });
+        setActiveView('tables');
+        toast.success(`Successfully fetched ${resultData.length} rows.`);
+        break;
+
+      case 'write_confirmation':
+        const confirmationMessage = `AI has generated the following query for your review. Please confirm to execute it.\n\n\`\`\`sql\n${query}\n\`\`\``;
+        setMessages(prev => [...prev, { text: confirmationMessage, sender: 'ai' }]);
+        toast((t) => (
+          <span className="flex flex-col items-center gap-2 text-white">
+            Execute this write query?
+            <pre className="text-xs bg-gray-800 p-2 rounded w-full text-left max-h-40 overflow-auto">{query}</pre>
+            <div className="flex gap-2">
+              <button onClick={() => { handleConfirmedWrite(query); toast.dismiss(t.id); }}
+                      className="bg-green-600 hover:bg-green-700 font-bold py-1 px-3 rounded">
+                Confirm
+              </button>
+              <button onClick={() => { setMessages(prev => [...prev, { text: "Write operation cancelled.", sender: 'ai' }]); toast.dismiss(t.id);}}
+                      className="bg-red-600 hover:bg-red-700 font-bold py-1 px-3 rounded">
+                Cancel
+              </button>
+            </div>
+          </span>
+        ), { duration: 20000, style: { background: '#4B5563', color: '#fff' } });
+        break;
+
+      case 'query_success': // This is for confirmed writes from aiService
+        toast.success(message);
+        setMessages(prev => [...prev, { text: `✅ ${message}`, sender: 'ai' }]);
+        break;
+
+      case 'ui_action':
+        setActiveView(view.split(':')[0]);
+        setMessages(prev => [...prev, { text: `Opening the ${view.replace(/_/, ' ')} view.`, sender: 'ai' }]);
+        break;
+    }
+  };
+
+  const handleSendMessage = async (command) => {
     setMessages(prev => [...prev, { text: command, sender: 'user' }]);
-    socket.emit('user-command', command);
+    const response = await sendApiCommand('user-command', { command });
+    handleApiResponse(response);
   };
   
-  const handleRunManualQuery = (query) => {
-    setIsLoading(true);
+  const handleRunManualQuery = async (query) => {
     toast('Executing manual query...');
-    socket.emit('manual-sql-execute', { query });
-  }
+    const response = await sendApiCommand('manual-sql-execute', { query });
+    handleApiResponse(response);
+  };
+  
+  const handleConfirmedWrite = async (query) => {
+    toast('Executing confirmed write query...');
+    const response = await sendApiCommand('execute-confirmed-write', { query });
+    handleApiResponse(response);
+  };
 
   const handleFileUpload = (file, command) => {
     const defaultCommand = "Please add this data to the appropriate table.";
@@ -112,7 +132,7 @@ export default function AdminDashboard({ user, profile, signOut }) {
     
     const reader = new FileReader();
 
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const data = e.target.result;
         let jsonData;
@@ -135,7 +155,9 @@ export default function AdminDashboard({ user, profile, signOut }) {
         }
 
         toast.success(`${file.name} parsed successfully. Sending to AI...`, { id: toastId });
-        socket.emit('user-command-with-data', { command: userCommand, data: jsonData });
+        const response = await sendApiCommand('user-command', { command: userCommand, data: jsonData });
+        handleApiResponse(response);
+
       } catch (err) {
         toast.error(`Failed to parse file: ${err.message}`, { id: toastId });
         setMessages(prev => [...prev, { text: `⚠️ Error: Failed to parse ${file.name}.`, sender: 'ai' }]);
@@ -159,7 +181,8 @@ export default function AdminDashboard({ user, profile, signOut }) {
   );
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full h-screen flex bg-gray-900 text-white font-sans">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full h-screen flex bg-gray-900 text-white font-sans overflow-hidden">
+      {/* --- SIDEBAR --- */}
       <div className="w-64 bg-gray-800 p-4 flex flex-col shrink-0">
         <div className="mb-8">
             <h1 className="text-2xl font-bold text-white tracking-wider">JECRC Panel</h1>
@@ -175,17 +198,23 @@ export default function AdminDashboard({ user, profile, signOut }) {
             <button onClick={signOut} className="w-full bg-red-700/80 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition">Sign Out</button>
         </div>
       </div>
-      <main className="flex-1 flex flex-col p-6 min-w-0">
-        <div className="flex justify-between items-center mb-4">
-            <h2 className="text-3xl font-bold capitalize">{activeView.replace(/_/, ' ')} View</h2>
-            <div className="flex items-center space-x-2"><div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div><span className="text-sm text-gray-400">{isConnected ? 'Connected' : 'Disconnected'}</span></div>
-        </div>
-        <div className="flex-1 bg-gray-800/50 rounded-lg border border-white/10 flex flex-col overflow-hidden">
-            {activeView === 'ai' && <AIAssistant messages={messages} onSendMessage={handleSendMessage} onFileUpload={handleFileUpload} isLoading={isLoading} />}
-            {activeView === 'tables' && <TableViewer data={queryResults.data} query={queryResults.query} />}
-            {activeView === 'sql' && <SqlEditor onRunQuery={handleRunManualQuery} isLoading={isLoading} />}
-        </div>
-      </main>
+
+      {/* --- MAIN CONTENT AREA (Corrected) --- */}
+      <div className="flex-1 flex flex-col min-w-0"> {/* This container is the key */}
+        <main className="flex-1 flex flex-col p-6 gap-4 overflow-y-auto">
+          {/* Header section */}
+          <div className="flex justify-between items-center">
+              <h2 className="text-3xl font-bold capitalize">{activeView.replace(/_/, ' ')} View</h2>
+          </div>
+
+          {/* Content viewer */}
+          <div className="flex-1 flex flex-col bg-gray-800/50 rounded-lg border border-white/10 overflow-hidden">
+              {activeView === 'ai' && <AIAssistant messages={messages} onSendMessage={handleSendMessage} onFileUpload={handleFileUpload} isLoading={isLoading} />}
+              {activeView === 'tables' && <TableViewer data={queryResults.data} query={queryResults.query} />}
+              {activeView === 'sql' && <SqlEditor onRunQuery={handleRunManualQuery} isLoading={isLoading} />}
+          </div>
+        </main>
+      </div>
     </motion.div>
   );
 }
